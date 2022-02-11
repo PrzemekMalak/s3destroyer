@@ -21,12 +21,10 @@ jobs:
       run: mkdir linux
     - name: Build
       run: go build -v -o linux ./...
-
-    - name: Test
-      run: go test -v ./...
       
     - name: Make dir mac
       run: mkdir mac
+
     - name: Build Darvin
       run: GOOS=darwin GOARCH=arm64 go build -v -o mac ./...
       
@@ -35,11 +33,6 @@ jobs:
       
     - name: Build Windows
       run: GOOS=windows GOARCH=amd64 go build -v -o windows ./...
-      
-    - run: ls -al
-    - run: ls -al mac
-    - run: ls -al linux
-    - run: ls -al windows
 
     - uses: actions/upload-artifact@v2
       with:
