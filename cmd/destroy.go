@@ -24,13 +24,11 @@ import (
 // destroyCmd represents the destroy command
 var destroyCmd = &cobra.Command{
 	Use:   "destroy",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+	Short: "Emptying a bucket and delteing it",
+	Long: `Emptying a bucket and delteing it.
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+To destroy a bucket you must provide a name of the bucket:
+s3destroyer destroy --name bucketname`,
 	Run: func(cmd *cobra.Command, args []string) {
 
 		name, _ := cmd.Flags().GetString("name")

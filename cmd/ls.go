@@ -22,13 +22,14 @@ import (
 // lsCmd represents the ls command
 var lsCmd = &cobra.Command{
 	Use:   "ls",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+	Short: "Generates a list of buckets or files inside a bucket",
+	Long: `Generates a list of buckets or files inside a bucket.
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+To generate the list of files inside a bucket add --name flag followet by name of the bucket:
+s3destoryer ls --name bucketname
+
+To generate the list of buckets: 
+s3destoryer ls`,
 	Run: func(cmd *cobra.Command, args []string) {
 		name, _ := cmd.Flags().GetString("name")
 		profile, _ := cmd.Flags().GetString("profile")
