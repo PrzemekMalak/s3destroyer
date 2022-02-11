@@ -44,14 +44,14 @@ jobs:
     - uses: actions/upload-artifact@v2
       with:
         name: awss3destroyer-linux
-        path: ./linux/*
+        path: ./linux/s3destroyer
 
     - uses: actions/upload-artifact@v2
       with:
         name: awss3destroyer-mac
-        path: ./mac/awss3destroyer
+        path: ./mac/s3destroyer
         
     - uses: actions/upload-artifact@v2
       with:
         name: awss3destroyer-windows
-        path: ./windows/awss3destroyer.exe
+        path: ./windows/s3destroyer.exe
