@@ -47,43 +47,12 @@ func listObjects(profile string, region string, bucketName string) {
 			log.Fatalf("Failed to list objects: %v", err.Error())
 		}
 
-		objects := []types.ObjectIdentifier{}
-
 		for _, item := range out.Contents {
 			fmt.Printf("%s\n", *item.Key)
-			objects = append(objects, types.ObjectIdentifier{Key: aws.String(*item.Key)})
 		}
 
-		//deleteObjects(profile, region, bucketName, objects)
 		if out.IsTruncated {
 			in.ContinuationToken = out.ContinuationToken
-		} else {
-			break
-		}
-	}
-}
-
-func listObjectVersions(profile string, region string, bucketName string) {
-	bucketRegion := getBucketLocation(profile, region, bucketName)
-	clt := getS3Slient(profile, bucketRegion)
-	in := &s3.ListObjectVersionsInput{Bucket: aws.String(bucketName)}
-	for {
-		out, err := clt.ListObjectVersions(context.TODO(), in)
-		if err != nil {
-			log.Fatalf("Failed to list version objects: %v", err)
-		}
-		//deleteObjects(profile, bucketName, *out)
-		// for _, item := range out.DeleteMarkers {
-		// 	fmt.Printf("%s %s\n", bucketName, item.Key, item.VersionId)
-		// }
-
-		// for _, item := range out.Versions {
-		// 	fmt.Printf("%s %s\n", bucketName, item.Key, item.VersionId)
-		// }
-
-		if out.IsTruncated {
-			in.VersionIdMarker = out.NextVersionIdMarker
-			in.KeyMarker = out.NextKeyMarker
 		} else {
 			break
 		}
@@ -98,13 +67,73 @@ func getBucketLocation(profile string, region string, bucketName string) (locati
 		panic(err)
 	}
 	location = string(out.LocationConstraint)
-	fmt.Println(location)
 	return location
 }
 
-func deleteObjects(profile string, region string, bucketName string, objs []types.ObjectIdentifier) {
-	bucket_region := getBucketLocation(profile, region, bucketName)
-	clt := getS3Slient(profile, bucket_region)
+func removeBucket(profile string, region string, bucketName string) {
+	bucketRegion := getBucketLocation(profile, region, bucketName)
+	clt := getS3Slient(profile, bucketRegion)
+
+	//delete files
+	in := &s3.ListObjectsV2Input{Bucket: aws.String(bucketName)}
+	for {
+		out, err := clt.ListObjectsV2(context.TODO(), in)
+		if err != nil {
+			log.Fatalf("Failed to get objects: %v", err.Error())
+		}
+
+		objects := []types.ObjectIdentifier{}
+
+		for _, item := range out.Contents {
+			fmt.Printf("%s\n", *item.Key)
+			objects = append(objects, types.ObjectIdentifier{Key: aws.String(*item.Key)})
+		}
+
+		deleteObjects(&clt, bucketName, objects)
+		if out.IsTruncated {
+			in.ContinuationToken = out.ContinuationToken
+		} else {
+			break
+		}
+	}
+
+	//delete versions and delete markers
+	inVer := &s3.ListObjectVersionsInput{Bucket: aws.String(bucketName)}
+	for {
+		out, err := clt.ListObjectVersions(context.TODO(), inVer)
+		if err != nil {
+			log.Fatalf("Failed to list version objects: %v", err)
+		}
+		objects := []types.ObjectIdentifier{}
+
+		for _, item := range out.DeleteMarkers {
+			objects = append(objects, types.ObjectIdentifier{Key: aws.String(*item.Key), VersionId: aws.String(*item.VersionId)})
+		}
+
+		for _, item := range out.Versions {
+			objects = append(objects, types.ObjectIdentifier{Key: aws.String(*item.Key), VersionId: aws.String(*item.VersionId)})
+		}
+
+		deleteObjects(&clt, bucketName, objects)
+
+		if out.IsTruncated {
+			inVer.VersionIdMarker = out.NextVersionIdMarker
+			inVer.KeyMarker = out.NextKeyMarker
+		} else {
+			break
+		}
+	}
+
+	//delete bucket
+	_, err := clt.DeleteBucket(context.TODO(), &s3.DeleteBucketInput{
+		Bucket: aws.String(bucketName),
+	})
+	if err != nil {
+		log.Fatalf("Failed to delete bucket: %v", err)
+	}
+}
+
+func deleteObjects(clt *s3.Client, bucketName string, objs []types.ObjectIdentifier) {
 	maxLen := 1000
 
 	for i := 0; i < len(objs); i += maxLen {
@@ -114,14 +143,12 @@ func deleteObjects(profile string, region string, bucketName string, objs []type
 		}
 
 		objects := []types.ObjectIdentifier{}
-		fmt.Printf("objects count: %d", len(objects))
-		fmt.Printf("objs count: %d", len(objs))
 		for _, obj := range objs[i:high] {
 			if obj.VersionId != nil {
-				fmt.Printf("Failed: %s %s\n", *obj.Key, *aws.String(*obj.VersionId))
+				fmt.Printf("Filename: %s VersionId: %s\n", *obj.Key, *aws.String(*obj.VersionId))
 				objects = append(objects, types.ObjectIdentifier{Key: aws.String(*obj.Key), VersionId: aws.String(*obj.VersionId)})
 			} else {
-				fmt.Printf("Failed: %s\n", *obj.Key)
+				fmt.Printf("Filename: %s\n", *obj.Key)
 				objects = append(objects, types.ObjectIdentifier{Key: aws.String(*obj.Key)})
 			}
 		}

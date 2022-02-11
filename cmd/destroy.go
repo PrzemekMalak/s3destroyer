@@ -32,36 +32,27 @@ Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("destroy called")
-		number, _ := cmd.Flags().GetString("number")
+
 		name, _ := cmd.Flags().GetString("name")
 		profile, _ := cmd.Flags().GetString("profile")
 		region, _ := cmd.Flags().GetString("region")
 
 		if len(name) > 0 {
+			fmt.Printf("Destroying bucket: %s\n", name)
 			destroyBucket(name, profile, region)
-		} else if len(number) > 0 {
-			fmt.Printf("Number of bucket: %s\n", number)
 		} else {
-			fmt.Printf("dupa")
+			fmt.Printf("Please provide name of the bucket")
 		}
 	},
 }
 
 func destroyBucket(bucketName string, profile string, region string) {
-	fmt.Printf("Destroying bucket: %s\n", bucketName)
+	removeBucket(profile, region, bucketName)
 }
 
 func init() {
 	rootCmd.AddCommand(destroyCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// destroyCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// destroyCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	destroyCmd.Flags().String("name", "", "Name of the bucket.")
+	destroyCmd.Flags().String("profile", "", "AWS Profile.")
+	destroyCmd.Flags().String("region", "", "AWS Region.")
 }

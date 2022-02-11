@@ -41,7 +41,10 @@ func getS3Slient(profile string, region string) (client s3.Client) {
 		cfg, err = config.LoadDefaultConfig(context.TODO(),
 			config.WithRegion(region),
 		)
+	} else if len(profile) == 0 && len(region) == 0 {
+		cfg, err = config.LoadDefaultConfig(context.TODO())
 	}
+
 	if err != nil {
 		log.Fatal(err)
 	}

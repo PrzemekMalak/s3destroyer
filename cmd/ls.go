@@ -16,8 +16,6 @@ limitations under the License.
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
@@ -35,7 +33,6 @@ to quickly create a Cobra application.`,
 		name, _ := cmd.Flags().GetString("name")
 		profile, _ := cmd.Flags().GetString("profile")
 		region, _ := cmd.Flags().GetString("region")
-		fmt.Printf("%s %s %s", name, profile, region)
 
 		if len(name) > 0 {
 			listObjects(profile, region, name)
@@ -47,8 +44,6 @@ to quickly create a Cobra application.`,
 
 func init() {
 	rootCmd.AddCommand(lsCmd)
-
-	lsCmd.Flags().String("number", "", "Number of the bucket")
 	lsCmd.Flags().String("name", "", "Name of the bucket.")
 	lsCmd.Flags().String("profile", "", "AWS Profile.")
 	lsCmd.Flags().String("region", "", "AWS Region.")
