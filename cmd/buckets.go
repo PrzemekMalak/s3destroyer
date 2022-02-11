@@ -17,8 +17,10 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -63,8 +65,13 @@ func getBucketLocation(profile string, region string, bucketName string) (locati
 	clt := getS3Slient(profile, region)
 	in := &s3.GetBucketLocationInput{Bucket: aws.String(bucketName)}
 	out, err := clt.GetBucketLocation(context.TODO(), in)
+	var re s3.ResponseError
 	if err != nil {
-		panic(err)
+		if errors.As(err, &re) {
+			fmt.Printf("Error getting bucket: %s location\n\n%s", bucketName, err.Error())
+			os.Exit(0)
+		}
+		os.Exit(1)
 	}
 	location = string(out.LocationConstraint)
 	return location
@@ -85,7 +92,6 @@ func removeBucket(profile string, region string, bucketName string) {
 		objects := []types.ObjectIdentifier{}
 
 		for _, item := range out.Contents {
-			fmt.Printf("%s\n", *item.Key)
 			objects = append(objects, types.ObjectIdentifier{Key: aws.String(*item.Key)})
 		}
 
