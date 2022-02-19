@@ -27,6 +27,12 @@ jobs:
 
     - name: Build Darvin
       run: GOOS=darwin GOARCH=arm64 go build -v -o mac ./...
+
+    - name: Make dir mac intel
+      run: mkdir macintel
+
+    - name: Build Darvin
+      run: GOOS=darwin GOARCH=amd64 go build -v -o mac ./...
       
     - name: Make dir Windows
       run: mkdir windows
