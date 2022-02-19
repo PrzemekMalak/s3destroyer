@@ -32,7 +32,7 @@ jobs:
       run: mkdir macintel
 
     - name: Build Darvin
-      run: GOOS=darwin GOARCH=amd64 go build -v -o mac ./...
+      run: GOOS=darwin GOARCH=amd64 go build -v -o macintel ./...
       
     - name: Make dir Windows
       run: mkdir windows
@@ -49,6 +49,11 @@ jobs:
       with:
         name: awss3destroyer-mac
         path: ./mac/s3destroyer
+
+    - uses: actions/upload-artifact@v2
+      with:
+        name: awss3destroyer-mac-amd64
+        path: ./macintel/s3destroyer
         
     - uses: actions/upload-artifact@v2
       with:
