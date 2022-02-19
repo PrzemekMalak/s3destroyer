@@ -23,9 +23,9 @@ import (
 var lsCmd = &cobra.Command{
 	Use:   "ls",
 	Short: "Generates a list of buckets or files inside a bucket",
-	Long: `Generates a list of buckets or files inside a bucket.
+	Long: `Generates a list of buckets or files inside a bucket.ś
 
-To generate the list of files inside a bucket add --name flag followet by name of the bucket:
+To generate the list of files inside a bucket add --name flag followed by name of the bucket:
 s3destoryer ls --name bucketname
 
 To generate the list of buckets: 
