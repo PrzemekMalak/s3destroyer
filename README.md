@@ -17,6 +17,6 @@ To destroy a bucket
 s3destroyer destroy --name bucket-name
 ```
 
-TYou can also provide a region and a profile name using ``--region`` and ``--profile`` flags.
+You can also provide a region and a profile name using ``--region`` and ``--profile`` flags.
 
 ``s3destroyer help`` can also be helpful 
