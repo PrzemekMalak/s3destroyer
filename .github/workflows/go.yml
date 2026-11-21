@@ -6,56 +6,54 @@ on:
   pull_request:
     branches: [ master ]
 
+permissions:
+  contents: read
+
 jobs:
 
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
 
     - name: Set up Go
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v7
       with:
-        go-version: 1.17
-    - name: Make dir-linux
-      run: mkdir linux
-    - name: Build
-      run: go build -v -o linux ./...
-      
-    - name: Make dir mac
-      run: mkdir mac
+        go-version-file: go.mod
 
-    - name: Build Darvin
-      run: GOOS=darwin GOARCH=arm64 go build -v -o mac ./...
+    - name: Vet
+      run: go vet ./...
 
-    - name: Make dir mac intel
-      run: mkdir macintel
+    - name: Test
+      run: go test -race ./...
 
-    - name: Build Darvin
-      run: GOOS=darwin GOARCH=amd64 go build -v -o macintel ./...
-      
-    - name: Make dir Windows
-      run: mkdir windows
-      
-    - name: Build Windows
-      run: GOOS=windows GOARCH=amd64 go build -v -o windows ./...
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64, artifact: awss3destroyer-linux,     binary: s3destroyer }
+          - { goos: darwin,  goarch: arm64, artifact: awss3destroyer-mac,       binary: s3destroyer }
+          - { goos: darwin,  goarch: amd64, artifact: awss3destroyer-mac-amd64, binary: s3destroyer }
+          - { goos: windows, goarch: amd64, artifact: awss3destroyer-windows,   binary: s3destroyer.exe }
+    steps:
+    - uses: actions/checkout@v7
 
-    - uses: actions/upload-artifact@v2
+    - name: Set up Go
+      uses: actions/setup-go@v7
       with:
-        name: awss3destroyer-linux
-        path: ./linux/s3destroyer
+        go-version-file: go.mod
 
-    - uses: actions/upload-artifact@v2
-      with:
-        name: awss3destroyer-mac
-        path: ./mac/s3destroyer
+    - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+        CGO_ENABLED: "0"
+      run: go build -v -trimpath -ldflags="-s -w" -o dist/${{ matrix.binary }} .
 
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v7
       with:
-        name: awss3destroyer-mac-amd64
-        path: ./macintel/s3destroyer
-        
-    - uses: actions/upload-artifact@v2
-      with:
-        name: awss3destroyer-windows
-        path: ./windows/s3destroyer.exe
+        name: ${{ matrix.artifact }}
+        path: dist/${{ matrix.binary }}
+        if-no-files-found: error

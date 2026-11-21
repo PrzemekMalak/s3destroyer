@@ -26,6 +26,8 @@ var rootCmd = &cobra.Command{
 	Use:   "s3destroyer",
 	Short: "A simplified way to destroy S3 buckets",
 	Long:  `The application can list and destroy S3 buckets. You do not have to make bucket empty before deleting it.`,
+	// Runtime errors (e.g. AWS failures) should not print the whole usage text.
+	SilenceUsage: true,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

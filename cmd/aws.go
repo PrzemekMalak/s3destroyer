@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,40 +17,44 @@ package cmd
 
 import (
 	"context"
-	"log"
+	"fmt"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-func getS3Slient(profile string, region string) (client s3.Client) {
-	// Load the Shared AWS Configuration (~/.aws/config)
-	var cfg aws.Config
-	var err error
-	if len(profile) > 0 && len(region) > 0 {
-		cfg, err = config.LoadDefaultConfig(context.TODO(),
-			config.WithSharedConfigProfile(profile),
-			config.WithRegion(region),
-		)
-	} else if len(profile) > 0 && len(region) == 0 {
-		cfg, err = config.LoadDefaultConfig(context.TODO(),
-			config.WithSharedConfigProfile(profile),
-		)
-	} else if len(profile) == 0 && len(region) > 0 {
-		cfg, err = config.LoadDefaultConfig(context.TODO(),
-			config.WithRegion(region),
-		)
-	} else if len(profile) == 0 && len(region) == 0 {
-		cfg, err = config.LoadDefaultConfig(context.TODO())
+// newS3Client creates an S3 client from the shared AWS configuration (~/.aws/config),
+// optionally overriding the profile and the region.
+func newS3Client(ctx context.Context, profile string, region string) (*s3.Client, error) {
+	var opts []func(*config.LoadOptions) error
+	if profile != "" {
+		opts = append(opts, config.WithSharedConfigProfile(profile))
+	}
+	if region != "" {
+		opts = append(opts, config.WithRegion(region))
 	}
 
+	cfg, err := config.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("failed to load AWS configuration: %w", err)
 	}
+	return s3.NewFromConfig(cfg), nil
+}
 
-	// Create an Amazon S3 service client
-	clt := s3.NewFromConfig(cfg)
-	return *clt
-
+// newBucketClient creates an S3 client for the region the bucket lives in
+// and returns that region.
+func newBucketClient(ctx context.Context, profile string, region string, bucketName string) (s3API, string, error) {
+	clt, err := newS3Client(ctx, profile, region)
+	if err != nil {
+		return nil, "", err
+	}
+	bucketRegion, err := getBucketLocation(ctx, clt, bucketName)
+	if err != nil {
+		return nil, "", err
+	}
+	clt, err = newS3Client(ctx, profile, bucketRegion)
+	if err != nil {
+		return nil, "", err
+	}
+	return clt, bucketRegion, nil
 }

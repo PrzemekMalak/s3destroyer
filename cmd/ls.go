@@ -23,23 +23,31 @@ import (
 var lsCmd = &cobra.Command{
 	Use:   "ls",
 	Short: "Generates a list of buckets or files inside a bucket",
-	Long: `Generates a list of buckets or files inside a bucket.ś
+	Long: `Generates a list of buckets or files inside a bucket.
 
 To generate the list of files inside a bucket add --name flag followed by name of the bucket:
-s3destoryer ls --name bucketname
+s3destroyer ls --name bucketname
 
 To generate the list of buckets: 
-s3destoryer ls`,
-	Run: func(cmd *cobra.Command, args []string) {
+s3destroyer ls`,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		profile, _ := cmd.Flags().GetString("profile")
 		region, _ := cmd.Flags().GetString("region")
 
+		ctx := cmd.Context()
 		if len(name) > 0 {
-			listObjects(profile, region, name)
-		} else {
-			listBuckets(profile, region)
+			clt, _, err := newBucketClient(ctx, profile, region, name)
+			if err != nil {
+				return err
+			}
+			return listObjects(ctx, clt, name, cmd.OutOrStdout())
 		}
+		clt, err := newS3Client(ctx, profile, region)
+		if err != nil {
+			return err
+		}
+		return listBuckets(ctx, clt, cmd.OutOrStdout())
 	},
 }
 

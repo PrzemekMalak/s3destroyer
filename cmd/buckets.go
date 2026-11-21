@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,155 +19,169 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
-	"os"
+	"io"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-func listBuckets(profile string, region string) {
-	clt := getS3Slient(profile, region)
-	input := &s3.ListBucketsInput{}
-	result, err := clt.ListBuckets(context.TODO(), input)
+// maxDeleteBatch is the maximum number of keys accepted by a single DeleteObjects call.
+const maxDeleteBatch = 1000
+
+// s3API is the subset of the S3 client used by s3destroyer.
+// It is satisfied by *s3.Client and by fakes in tests.
+type s3API interface {
+	s3.ListBucketsAPIClient
+	s3.ListObjectsV2APIClient
+	s3.ListObjectVersionsAPIClient
+	GetBucketLocation(ctx context.Context, params *s3.GetBucketLocationInput, optFns ...func(*s3.Options)) (*s3.GetBucketLocationOutput, error)
+	DeleteObjects(ctx context.Context, params *s3.DeleteObjectsInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error)
+	DeleteBucket(ctx context.Context, params *s3.DeleteBucketInput, optFns ...func(*s3.Options)) (*s3.DeleteBucketOutput, error)
+}
+
+func listBuckets(ctx context.Context, clt s3API, w io.Writer) error {
+	i := 0
+	p := s3.NewListBucketsPaginator(clt, &s3.ListBucketsInput{})
+	for p.HasMorePages() {
+		page, err := p.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list buckets: %w", err)
+		}
+		for _, b := range page.Buckets {
+			fmt.Fprintf(w, "%d %s\n", i, aws.ToString(b.Name))
+			i++
+		}
+	}
+	return nil
+}
+
+func listObjects(ctx context.Context, clt s3API, bucketName string, w io.Writer) error {
+	p := s3.NewListObjectsV2Paginator(clt, &s3.ListObjectsV2Input{Bucket: aws.String(bucketName)})
+	for p.HasMorePages() {
+		page, err := p.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list objects: %w", err)
+		}
+		for _, item := range page.Contents {
+			fmt.Fprintln(w, aws.ToString(item.Key))
+		}
+	}
+	return nil
+}
+
+func getBucketLocation(ctx context.Context, clt s3API, bucketName string) (string, error) {
+	out, err := clt.GetBucketLocation(ctx, &s3.GetBucketLocationInput{Bucket: aws.String(bucketName)})
 	if err != nil {
-		log.Fatalf("Failed to list buckets: %v", err.Error())
+		return "", fmt.Errorf("failed to get location of bucket %s: %w", bucketName, err)
 	}
-	for i, b := range result.Buckets {
-		fmt.Printf("%d %s\n", i, *b.Name)
-	}
-}
-
-func listObjects(profile string, region string, bucketName string) {
-	bucket_region := getBucketLocation(profile, region, bucketName)
-	clt := getS3Slient(profile, bucket_region)
-	in := &s3.ListObjectsV2Input{Bucket: aws.String(bucketName)}
-	for {
-		out, err := clt.ListObjectsV2(context.TODO(), in)
-		if err != nil {
-			log.Fatalf("Failed to list objects: %v", err.Error())
-		}
-
-		for _, item := range out.Contents {
-			fmt.Printf("%s\n", *item.Key)
-		}
-
-		if out.IsTruncated {
-			in.ContinuationToken = out.ContinuationToken
-		} else {
-			break
-		}
+	switch location := string(out.LocationConstraint); location {
+	case "":
+		return "us-east-1", nil
+	case "EU":
+		return "eu-west-1", nil
+	default:
+		return location, nil
 	}
 }
 
-func getBucketLocation(profile string, region string, bucketName string) (location string) {
-	clt := getS3Slient(profile, region)
-	in := &s3.GetBucketLocationInput{Bucket: aws.String(bucketName)}
-	out, err := clt.GetBucketLocation(context.TODO(), in)
-	var re s3.ResponseError
-	if err != nil {
-		if errors.As(err, &re) {
-			fmt.Printf("Error getting bucket: %s location\n\n%s", bucketName, err.Error())
-			os.Exit(0)
-		}
-		os.Exit(1)
-	}
-	location = string(out.LocationConstraint)
-	return location
+// bucketStats describes what destroying a bucket would remove.
+type bucketStats struct {
+	Versions      int
+	DeleteMarkers int
 }
 
-func removeBucket(profile string, region string, bucketName string) {
-	bucketRegion := getBucketLocation(profile, region, bucketName)
-	clt := getS3Slient(profile, bucketRegion)
-
-	//delete files
-	in := &s3.ListObjectsV2Input{Bucket: aws.String(bucketName)}
-	for {
-		out, err := clt.ListObjectsV2(context.TODO(), in)
+// countBucketContents counts all object versions and delete markers in a bucket.
+// For buckets without versioning every object is reported as a single version.
+func countBucketContents(ctx context.Context, clt s3API, bucketName string) (bucketStats, error) {
+	var stats bucketStats
+	p := s3.NewListObjectVersionsPaginator(clt, &s3.ListObjectVersionsInput{Bucket: aws.String(bucketName)})
+	for p.HasMorePages() {
+		page, err := p.NextPage(ctx)
 		if err != nil {
-			log.Fatalf("Failed to get objects: %v", err.Error())
+			return stats, fmt.Errorf("failed to list object versions: %w", err)
 		}
-
-		objects := []types.ObjectIdentifier{}
-
-		for _, item := range out.Contents {
-			objects = append(objects, types.ObjectIdentifier{Key: aws.String(*item.Key)})
-		}
-
-		deleteObjects(&clt, bucketName, objects)
-		if out.IsTruncated {
-			in.ContinuationToken = out.ContinuationToken
-		} else {
-			break
-		}
+		stats.Versions += len(page.Versions)
+		stats.DeleteMarkers += len(page.DeleteMarkers)
 	}
+	return stats, nil
+}
 
-	//delete versions and delete markers
-	inVer := &s3.ListObjectVersionsInput{Bucket: aws.String(bucketName)}
-	for {
-		out, err := clt.ListObjectVersions(context.TODO(), inVer)
+// removeBucket empties the bucket and then deletes it. Deleted keys are reported to w.
+//
+// It lists the bucket with ListObjectVersions only - the same call countBucketContents
+// uses for --dry-run - so a successful preview means the listing will also work here.
+// ListObjectVersions also covers buckets without versioning (their objects have the
+// version "null"), and deleting exact versions never creates new delete markers.
+func removeBucket(ctx context.Context, clt s3API, bucketName string, w io.Writer) error {
+	pv := s3.NewListObjectVersionsPaginator(clt, &s3.ListObjectVersionsInput{Bucket: aws.String(bucketName)})
+	for pv.HasMorePages() {
+		page, err := pv.NextPage(ctx)
 		if err != nil {
-			log.Fatalf("Failed to list version objects: %v", err)
-		}
-		objects := []types.ObjectIdentifier{}
-
-		for _, item := range out.DeleteMarkers {
-			objects = append(objects, types.ObjectIdentifier{Key: aws.String(*item.Key), VersionId: aws.String(*item.VersionId)})
+			return fmt.Errorf("failed to list object versions: %w", err)
 		}
 
-		for _, item := range out.Versions {
-			objects = append(objects, types.ObjectIdentifier{Key: aws.String(*item.Key), VersionId: aws.String(*item.VersionId)})
+		objects := make([]types.ObjectIdentifier, 0, len(page.DeleteMarkers)+len(page.Versions))
+		for _, item := range page.DeleteMarkers {
+			objects = append(objects, types.ObjectIdentifier{Key: item.Key, VersionId: item.VersionId})
+		}
+		for _, item := range page.Versions {
+			objects = append(objects, types.ObjectIdentifier{Key: item.Key, VersionId: item.VersionId})
 		}
 
-		deleteObjects(&clt, bucketName, objects)
-
-		if out.IsTruncated {
-			inVer.VersionIdMarker = out.NextVersionIdMarker
-			inVer.KeyMarker = out.NextKeyMarker
-		} else {
-			break
+		if err := deleteObjects(ctx, clt, bucketName, objects, w); err != nil {
+			return err
 		}
 	}
 
 	//delete bucket
-	_, err := clt.DeleteBucket(context.TODO(), &s3.DeleteBucketInput{
-		Bucket: aws.String(bucketName),
-	})
+	_, err := clt.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucketName)})
 	if err != nil {
-		log.Fatalf("Failed to delete bucket: %v", err)
+		return fmt.Errorf("failed to delete bucket: %w", err)
 	}
+	return nil
 }
 
-func deleteObjects(clt *s3.Client, bucketName string, objs []types.ObjectIdentifier) {
-	maxLen := 1000
+// deleteObjects removes objects in batches of up to maxDeleteBatch.
+//
+// Only deletions confirmed by S3 in the response are written to w, so the output
+// is an accurate record of what was removed. It fails if a request fails (nothing
+// from that batch is reported as deleted) or if S3 reports any object it could not
+// delete (the rest of that batch is still reported).
+func deleteObjects(ctx context.Context, clt s3API, bucketName string, objs []types.ObjectIdentifier, w io.Writer) error {
+	deleted := 0
+	for i := 0; i < len(objs); i += maxDeleteBatch {
+		batch := objs[i:min(i+maxDeleteBatch, len(objs))]
 
-	for i := 0; i < len(objs); i += maxLen {
-		high := i + maxLen
-		if high > len(objs) {
-			high = len(objs)
-		}
-
-		objects := []types.ObjectIdentifier{}
-		for _, obj := range objs[i:high] {
-			if obj.VersionId != nil {
-				fmt.Printf("Filename: %s VersionId: %s\n", *obj.Key, *aws.String(*obj.VersionId))
-				objects = append(objects, types.ObjectIdentifier{Key: aws.String(*obj.Key), VersionId: aws.String(*obj.VersionId)})
-			} else {
-				fmt.Printf("Filename: %s\n", *obj.Key)
-				objects = append(objects, types.ObjectIdentifier{Key: aws.String(*obj.Key)})
-			}
-		}
-		in := &s3.DeleteObjectsInput{
+		out, err := clt.DeleteObjects(ctx, &s3.DeleteObjectsInput{
 			Bucket: aws.String(bucketName),
 			Delete: &types.Delete{
-				Objects: objects,
-				Quiet:   false,
+				Objects: batch,
+				Quiet:   aws.Bool(false), // S3 lists every deleted object, so output is confirmed
 			},
-		}
-		_, err := clt.DeleteObjects(context.TODO(), in)
+		})
 		if err != nil {
-			fmt.Printf("Failed: %s\n", err)
+			return fmt.Errorf("delete request for a batch of %d object(s) failed, none of them confirmed deleted "+
+				"(%d deleted before this batch): %w", len(batch), deleted, err)
+		}
+
+		for _, d := range out.Deleted {
+			if d.VersionId != nil {
+				fmt.Fprintf(w, "Deleted: %s VersionId: %s\n", aws.ToString(d.Key), aws.ToString(d.VersionId))
+			} else {
+				fmt.Fprintf(w, "Deleted: %s\n", aws.ToString(d.Key))
+			}
+		}
+		deleted += len(out.Deleted)
+
+		if len(out.Errors) > 0 {
+			errs := make([]error, 0, len(out.Errors))
+			for _, e := range out.Errors {
+				errs = append(errs, fmt.Errorf("%s (version %s): %s: %s",
+					aws.ToString(e.Key), aws.ToString(e.VersionId), aws.ToString(e.Code), aws.ToString(e.Message)))
+			}
+			return fmt.Errorf("failed to delete %d object(s):\n%w", len(out.Errors), errors.Join(errs...))
 		}
 	}
+	return nil
 }

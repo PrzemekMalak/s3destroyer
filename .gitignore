@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Build output
+/s3destroyer
+/s3destroyer.exe
+/dist/
+/linux/
+/mac/
+/macintel/
+/windows/
+
+# Test artifacts
+*.test
+*.out
