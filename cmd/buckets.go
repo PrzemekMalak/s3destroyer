@@ -29,6 +29,10 @@ import (
 // maxDeleteBatch is the maximum number of keys accepted by a single DeleteObjects call.
 const maxDeleteBatch = 1000
 
+// maxListBuckets is the largest page ListBuckets accepts. Setting MaxBuckets makes the
+// request paginated, which S3 requires for accounts with a bucket quota above 10,000.
+const maxListBuckets = 10000
+
 // s3API is the subset of the S3 client used by s3destroyer.
 // It is satisfied by *s3.Client and by fakes in tests.
 type s3API interface {
@@ -42,7 +46,7 @@ type s3API interface {
 
 func listBuckets(ctx context.Context, clt s3API, w io.Writer) error {
 	i := 0
-	p := s3.NewListBucketsPaginator(clt, &s3.ListBucketsInput{})
+	p := s3.NewListBucketsPaginator(clt, &s3.ListBucketsInput{MaxBuckets: aws.Int32(maxListBuckets)})
 	for p.HasMorePages() {
 		page, err := p.NextPage(ctx)
 		if err != nil {

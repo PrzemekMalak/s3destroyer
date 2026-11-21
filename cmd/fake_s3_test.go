@@ -40,6 +40,9 @@ type fakeS3 struct {
 	denied           map[string]bool // operations (e.g. "ListObjectsV2") failing with AccessDenied
 	deleteObjectsErr error           // returned by every DeleteObjects call when set
 
+	largeBucketQuota  bool     // account quota above 10,000 buckets: ListBuckets must be paginated
+	listBucketsLimits []*int32 // MaxBuckets of every ListBuckets request, in order
+
 	deleteBatches     []int // number of keys in each DeleteObjects call
 	markersCreated    int   // delete markers added by DeleteObjects calls without VersionId
 	deleteBucketCalls int
@@ -107,7 +110,25 @@ func (f *fakeS3) ListBuckets(_ context.Context, in *s3.ListBucketsInput, _ ...fu
 	if err := f.checkAccess("ListBuckets"); err != nil {
 		return nil, err
 	}
+	f.listBucketsLimits = append(f.listBucketsLimits, in.MaxBuckets)
 	names := slices.Sorted(slices.Values(f.buckets))
+
+	if in.MaxBuckets == nil {
+		// An unpaginated request returns every bucket at once, but S3 rejects it
+		// for accounts whose bucket quota is above 10,000.
+		if f.largeBucketQuota {
+			return nil, errors.New("InvalidRequest: ListBuckets must be paginated for accounts with a bucket quota above 10,000")
+		}
+		out := &s3.ListBucketsOutput{}
+		for _, n := range names {
+			out.Buckets = append(out.Buckets, types.Bucket{Name: aws.String(n)})
+		}
+		return out, nil
+	}
+	if *in.MaxBuckets < 1 || *in.MaxBuckets > 10000 {
+		return nil, fmt.Errorf("InvalidArgument: MaxBuckets must be between 1 and 10000, got %d", *in.MaxBuckets)
+	}
+
 	start := 0
 	if in.ContinuationToken != nil {
 		start, _ = slices.BinarySearch(names, *in.ContinuationToken)

@@ -347,3 +347,33 @@ func TestDeleteObjectsReportsOnlyConfirmedDeletions(t *testing.T) {
 		}
 	})
 }
+
+// S3 rejects unpaginated ListBuckets requests on accounts with a bucket quota above
+// 10,000, so MaxBuckets must be set already on the first request, not only on the
+// follow-up pages.
+func TestListBucketsPaginatesFromTheFirstRequest(t *testing.T) {
+	f := newFakeS3(false)
+	f.largeBucketQuota = true
+	f.pageSize = 2
+	f.buckets = []string{"a", "b", "c"}
+
+	var buf bytes.Buffer
+	if err := listBuckets(context.Background(), f, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "0 a\n1 b\n2 c\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+
+	if len(f.listBucketsLimits) != 2 {
+		t.Fatalf("got %d ListBuckets requests, want 2", len(f.listBucketsLimits))
+	}
+	for i, limit := range f.listBucketsLimits {
+		if limit == nil {
+			t.Fatalf("request %d has no MaxBuckets", i)
+		}
+		if *limit != maxListBuckets {
+			t.Errorf("request %d: MaxBuckets = %d, want %d", i, *limit, maxListBuckets)
+		}
+	}
+}
